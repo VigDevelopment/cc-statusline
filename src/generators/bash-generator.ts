@@ -1,13 +1,14 @@
 import { StatuslineConfig } from '../cli/prompts.js'
 import { generateColorBashCode, generateBasicColors } from '../features/colors.js'
 import { generateGitBashCode, generateGitDisplayCode, generateGitUtilities } from '../features/git.js'
-import { generateUsageBashCode, generateUsageDisplayCode, generateUsageUtilities } from '../features/usage.js'
+import { generateUsageBashCode, generateUsageUtilities } from '../features/usage.js'
 
 export function generateBashStatusline(config: StatuslineConfig): string {
   const hasGit = config.features.includes('git')
   const hasUsage = config.features.some(f => ['usage', 'session', 'tokens', 'burnrate'].includes(f))
   const hasDirectory = config.features.includes('directory')
   const hasModel = config.features.includes('model')
+  const hasContext = config.features.includes('context')
 
   // Build usage feature config
   const usageConfig = {
@@ -34,13 +35,13 @@ export function generateBashStatusline(config: StatuslineConfig): string {
 # Theme: ${config.theme} | Colors: ${config.colors} | Features: ${config.features.join(', ')}
 
 ${config.logging ? generateLoggingCode() : ''}
-input=$(cat)
+${generateBasicDataExtraction(hasDirectory, hasModel, hasContext)}
 ${generateColorBashCode({ enabled: config.colors, theme: config.theme })}
 ${config.colors ? generateBasicColors() : ''}
 ${hasUsage ? generateUsageUtilities() : ''}
 ${hasGit ? generateGitUtilities() : ''}
-${generateBasicDataExtraction(hasDirectory, hasModel)}
 ${hasGit ? generateGitBashCode(gitConfig, config.colors) : ''}
+${hasContext ? generateContextBashCode(config.colors) : ''}
 ${hasUsage ? generateUsageBashCode(usageConfig, config.colors) : ''}
 ${config.logging ? generateLoggingOutput() : ''}
 ${generateDisplaySection(config, gitConfig, usageConfig)}
@@ -51,29 +52,128 @@ ${generateDisplaySection(config, gitConfig, usageConfig)}
 
 function generateLoggingCode(): string {
   return `
+# Enable logging
 LOG_FILE="\${HOME}/.claude/statusline.log"
-TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+LOG_ENABLED=1
 
-# ---- logging ----
-{
-  echo "[$TIMESTAMP] Status line triggered with input:"
-  (echo "$input" | jq . 2>/dev/null) || echo "$input"
-  echo "---"
-} >> "$LOG_FILE" 2>/dev/null
+# Logging function
+log_debug() {
+  if [ "$LOG_ENABLED" -eq 1 ]; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
+  fi
+}
+
+log_debug "=== Statusline execution started ==="
 `
 }
 
-function generateBasicDataExtraction(hasDirectory: boolean, hasModel: boolean): string {
+function generateBasicDataExtraction(hasDirectory: boolean, hasModel: boolean, hasContext: boolean): string {
   return `
+input=$(cat)
+log_debug "Input received: \${#input} characters"
+
+log_debug "Color state: use_color=\$use_color, NO_COLOR=\${NO_COLOR:-unset}, TTY test: \$([ -t 1 ] && echo 'yes' || echo 'no')"
+
 # ---- basics ----
-if command -v jq >/dev/null 2>&1; then${hasDirectory ? `
+if command -v jq >/dev/null 2>&1; then
+  log_debug "jq found, parsing JSON input"${hasDirectory ? `
   current_dir=$(echo "$input" | jq -r '.workspace.current_dir // .cwd // "unknown"' 2>/dev/null | sed "s|^$HOME|~|g")` : ''}${hasModel ? `
   model_name=$(echo "$input" | jq -r '.model.display_name // "Claude"' 2>/dev/null)
-  model_version=$(echo "$input" | jq -r '.model.version // ""' 2>/dev/null)` : ''}
-else${hasDirectory ? `
+  model_version=$(echo "$input" | jq -r '.model.version // ""' 2>/dev/null)` : ''}${hasContext ? `
+  session_id=$(echo "$input" | jq -r '.session_id // ""' 2>/dev/null)` : ''}
+  log_debug "Parsed: dir=\${current_dir:-}, model=\${model_name:-}, version=\${model_version:-}, session=\${session_id:-}"
+else
+  log_debug "jq not found, using defaults"${hasDirectory ? `
   current_dir="unknown"` : ''}${hasModel ? `
-  model_name="Claude"; model_version=""` : ''}
+  model_name="Claude"; model_version=""` : ''}${hasContext ? `
+  session_id=""` : ''}
 fi
+`
+}
+
+function generateContextBashCode(colors: boolean): string {
+  const sessionColors = colors ? `
+# ---- session colors (blue/cyan to differentiate from context) ----
+session_color() { 
+  rem_pct=$(( 100 - session_pct ))
+  # Use blue/cyan colors to differentiate from context (green/yellow/red)
+  if   (( rem_pct <= 10 )); then SCLR='1;94'  # bright blue
+  elif (( rem_pct <= 25 )); then SCLR='1;96'  # bright cyan
+  else                          SCLR='1;34'; fi  # blue
+  if [ "$use_color" -eq 1 ]; then printf '\\033[%sm' "$SCLR"; fi
+}` : `
+session_color() { :; }`
+
+  return `
+# ---- context window calculation ----
+context_tokens=0; context_pct=0; context_remaining=0
+
+# Determine max context based on model
+get_max_context() {
+  local model_name="$1"
+  case "$model_name" in
+    # Claude 3.5 and Claude 4.x models (all have 200K)
+    *"Opus 4"*|*"opus 4"*|*"Opus"*|*"opus"*)
+      echo "200000"  # 200K for all Opus versions
+      ;;
+    *"Sonnet 4"*|*"sonnet 4"*|*"Sonnet 3.5"*|*"sonnet 3.5"*|*"Sonnet"*|*"sonnet"*)
+      echo "200000"  # 200K for Sonnet 3.5+ and 4.x
+      ;;
+    *"Haiku 3.5"*|*"haiku 3.5"*|*"Haiku 4"*|*"haiku 4"*|*"Haiku"*|*"haiku"*)
+      echo "200000"  # 200K for modern Haiku (3.5+ and 4.x)
+      ;;
+    # Legacy Claude 3.0 models (smaller context windows)
+    *"Claude 3 Haiku"*|*"claude 3 haiku"*)
+      echo "100000"  # 100K for original Claude 3 Haiku
+      ;;
+    # Generic Claude patterns
+    *"Claude"*|*"claude"*)
+      echo "200000"  # Default to 200K for any Claude model
+      ;;
+    *)
+      echo "200000"  # Default to 200K for unknown models
+      ;;
+  esac
+}
+
+MAX_CONTEXT=$(get_max_context "$model_name")
+log_debug "Model: $model_name, Max context: $MAX_CONTEXT"
+
+# Progress bar function for context remaining
+context_progress_bar() {
+  local remaining_pct="$1"
+  local width="$2"
+  # Clamp percentage to 0-100
+  [ "$remaining_pct" -lt 0 ] && remaining_pct=0
+  [ "$remaining_pct" -gt 100 ] && remaining_pct=100
+  
+  local filled=$(( remaining_pct * width / 100 ))
+  local empty=$(( width - filled ))
+  
+  # Use different characters: ■ for remaining, □ for used
+  printf '%*s' "$filled" '' | tr ' ' '■'
+  printf '%*s' "$empty" '' | tr ' ' '□'
+}
+
+if [ -n "$session_id" ] && command -v jq >/dev/null 2>&1; then
+  # Convert current dir to session file path
+  project_dir=$(echo "$current_dir" | sed "s|~|$HOME|g" | sed 's|/|-|g')
+  session_file="$HOME/.claude/projects/\${project_dir}/\${session_id}.jsonl"
+  
+  log_debug "Looking for session file: $session_file"
+  
+  if [ -f "$session_file" ]; then
+    # Get the latest token count from the session file
+    latest_tokens=$(cat "$session_file" | jq -r 'select(.message.usage) | .message.usage | ((.input_tokens // 0) + (.cache_read_input_tokens // 0))' 2>/dev/null | tail -1)
+    
+    if [ -n "$latest_tokens" ] && [ "$latest_tokens" -ne 0 ]; then
+      context_tokens=$latest_tokens
+      context_pct=$(( context_tokens * 100 / MAX_CONTEXT ))
+      context_remaining=$(( MAX_CONTEXT - context_tokens ))
+      log_debug "Context: tokens=$context_tokens, pct=$context_pct%, remaining=$context_remaining"
+    fi
+  fi
+fi${sessionColors}
 `
 }
 
@@ -81,7 +181,7 @@ function generateLoggingOutput(): string {
   return `
 # ---- log extracted data ----
 {
-  echo "[\$TIMESTAMP] Extracted: dir=\${current_dir:-}, model=\${model_name:-}, version=\${model_version:-}, git=\${git_branch:-}, cost=\${cost_usd:-}, cost_ph=\${cost_per_hour:-}, tokens=\${tot_tokens:-}, tpm=\${tpm:-}, session_pct=\${session_pct:-}"
+  echo "[\$TIMESTAMP] Extracted: dir=\${current_dir:-}, model=\${model_name:-}, version=\${model_version:-}, git=\${git_branch:-}, cost=\${cost_usd:-}, cost_ph=\${cost_per_hour:-}, tokens=\${tot_tokens:-}, tpm=\${tpm:-}, session_pct=\${session_pct:-}, context=\${context_tokens:-}/\${MAX_CONTEXT:-}"
 } >> "$LOG_FILE" 2>/dev/null
 `
 }
@@ -90,7 +190,9 @@ function generateDisplaySection(config: StatuslineConfig, gitConfig: any, usageC
   const emojis = config.colors && !config.customEmojis
 
   let displayCode = `
-# ---- render statusline ----`
+# ---- render statusline ----
+# Add reset code at the beginning to override any terminal dim settings
+printf '\\033[0m'`
 
   // Directory
   if (config.features.includes('directory')) {
@@ -112,8 +214,127 @@ if [ -n "$model_version" ] && [ "$model_version" != "null" ]; then
 fi`
   }
 
-  // Usage features
-  displayCode += generateUsageDisplayCode(usageConfig, config.colors, emojis)
+  // Context window
+  if (config.features.includes('context')) {
+    const contextEmoji = emojis ? '🧠' : 'ctx:'
+    displayCode += `
+# context window display
+if [ "$context_tokens" -gt 0 ]; then
+  # Calculate percentage remaining instead of used
+  remaining_pct=$(( 100 - context_pct ))
+  
+  # Color based on how much is remaining
+  if [ "$remaining_pct" -lt 20 ]; then
+    if [ "$use_color" -eq 1 ]; then
+      context_color=$(printf '\\033[1;31m')  # bold red if <20% remaining
+    else
+      context_color=""
+    fi
+  elif [ "$remaining_pct" -lt 40 ]; then
+    if [ "$use_color" -eq 1 ]; then
+      context_color=$(printf '\\033[1;33m')  # bold yellow if <40% remaining
+    else
+      context_color=""
+    fi
+  else
+    if [ "$use_color" -eq 1 ]; then
+      context_color=$(printf '\\033[1;32m')  # bold green if >40% remaining
+    else
+      context_color=""
+    fi
+  fi
+  
+  # Create context progress bar (showing remaining, not used)
+  context_bar=$(context_progress_bar "$remaining_pct" 10)
+  
+  printf '  ${contextEmoji} Context Left: %s%d%% [%s]%s' "$context_color" "$remaining_pct" "$context_bar" "$(rst)"
+else
+  # Show TBD when context info isn't available yet
+  if [ "$use_color" -eq 1 ]; then
+    context_color=$(printf '\\033[1;37m')  # bright white/gray for TBD
+  else
+    context_color=""
+  fi
+  printf '  ${contextEmoji} Context Left: %sTBD%s' "$context_color" "$(rst)"
+fi`
+  }
+
+  // Usage features on second line
+  if (usageConfig.enabled) {
+    displayCode += `
+# Add newline before usage/analytics line
+usage_line_content=""
+${generateUsageLineContent(usageConfig, config.colors, emojis)}
+
+# Print usage line only if there's content
+if [ -n "$usage_line_content" ]; then
+  printf '\\\\n%s' "$usage_line_content"
+fi`
+  }
+
+  // Add newline at the end
+  displayCode += `
+printf '\\\\n'`
 
   return displayCode
+}
+
+function generateUsageLineContent(usageConfig: any, colors: boolean, emojis: boolean): string {
+  let usageContent = ''
+
+  // Session time
+  if (usageConfig.showSession) {
+    const sessionEmoji = emojis ? '⌛' : 'session:'
+    usageContent += `
+# session time
+if [ -n "$session_txt" ]; then
+  usage_line_content="\\${usage_line_content}${sessionEmoji} \\$(session_color)\\${session_txt}\\$(rst)  \\$(session_color)[\\${session_bar}]\\$(rst)"
+fi`
+  }
+
+  // Cost tracking
+  if (usageConfig.showCost) {
+    const costEmoji = emojis ? '💵' : 'cost:'
+    usageContent += `
+# cost
+if [ -n "$cost_usd" ] && [[ "$cost_usd" =~ ^[0-9.]+$ ]]; then
+  if [ -n "$cost_per_hour" ] && [[ "$cost_per_hour" =~ ^[0-9.]+$ ]]; then
+    usage_line_content="\\${usage_line_content}  ${costEmoji} \\$(cost_color)\\$\\$(printf '%.2f' \\"$cost_usd\\") (\\$\\$(printf '%.2f' \\"$cost_per_hour\\")/h)\\$(rst)"
+  else
+    usage_line_content="\\${usage_line_content}  ${costEmoji} \\$(cost_color)\\$\\$(printf '%.2f' \\"$cost_usd\\")\\$(rst)"
+  fi
+fi`
+  }
+
+  // Token statistics
+  if (usageConfig.showTokens) {
+    const tokenEmoji = emojis ? '📊' : 'tokens:'
+    if (usageConfig.showBurnRate) {
+      usageContent += `
+# tokens with burn rate
+if [ -n "$tot_tokens" ] && [[ "$tot_tokens" =~ ^[0-9]+$ ]]; then
+  if [ -n "$tpm" ] && [[ "$tpm" =~ ^[0-9.]+$ ]]; then
+    usage_line_content="\\${usage_line_content}  ${tokenEmoji} \\$(usage_color)\\${tot_tokens} tok (\\$(printf '%.0f' \\"$tpm\\") tpm)\\$(rst)"
+  else
+    usage_line_content="\\${usage_line_content}  ${tokenEmoji} \\$(usage_color)\\${tot_tokens} tok\\$(rst)"
+  fi
+fi`
+    } else {
+      usageContent += `
+# tokens only
+if [ -n "$tot_tokens" ] && [[ "$tot_tokens" =~ ^[0-9]+$ ]]; then
+  usage_line_content="\\${usage_line_content}  ${tokenEmoji} \\$(usage_color)\\${tot_tokens} tok\\$(rst)"
+fi`
+    }
+  } else if (usageConfig.showBurnRate) {
+    // Show burn rate without tokens
+    const burnEmoji = emojis ? '⚡' : 'tpm:'
+    usageContent += `
+# burn rate only
+if [ -n "$tpm" ] && [[ "$tpm" =~ ^[0-9.]+$ ]]; then
+  usage_line_content="\\${usage_line_content}  ${burnEmoji} \\$(usage_color)\\$(printf '%.0f' \\"$tpm\\") tpm\\$(rst)"
+fi`
+  }
+
+  return usageContent
 }

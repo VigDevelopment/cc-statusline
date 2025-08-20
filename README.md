@@ -35,10 +35,12 @@ Transform your bland Claude Code terminal into an information-rich powerhouse:
 - **📁 Smart Directory Display** - Current folder with `~` abbreviation
 - **🌿 Git Integration** - Current branch name with clean styling  
 - **🤖 Model Intelligence** - Shows which Claude model you're using
+- **🧠 Context Window Tracking** - Dynamic model-aware context tracking with progress bar
 - **💵 Real-Time Cost Tracking** - Live cost monitoring via ccusage integration
 - **⌛ Session Management** - Time remaining until usage limit resets with progress bars
 - **📊 Advanced Analytics** - Optional token consumption and burn rate metrics
-- **🎨 Beautiful Colors** - TTY-aware colors that respect your terminal theme
+- **🎨 Distinct Color Schemes** - Context (green/yellow/red) vs Session (blue/cyan) colors
+- **📝 Optional Debug Logging** - Detailed logging to .claude/statusline.log (off by default)
 - **⚡ Lightning Fast** - Optimized bash script with <100ms execution time
 
 ## 🎛️ Features Overview
@@ -49,6 +51,7 @@ Transform your bland Claude Code terminal into an information-rich powerhouse:
 | 📁 **Directory** | Current working directory | `~/my-project` |
 | 🌿 **Git Branch** | Active git branch | `main` |
 | 🤖 **Model** | Claude model name & version | `Opus 4.1` |
+| 🧠 **Context Window** | Model-aware context tracking with progress bar | `Context Left: 58% [■■■■■■□□□□]` |
 | 💵 **Usage & Cost** | Real-time costs with hourly rate | `$2.48 ($12.50/h)` |
 | ⌛ **Session Time** | Time until reset with progress | `2h 15m until reset (68%)` |
 
@@ -65,9 +68,15 @@ Transform your bland Claude Code terminal into an information-rich powerhouse:
 📁 ~/my-app  🌿 main  🤖 Claude Sonnet
 ```
 
-**Full Power Mode:**
+**With Context Tracking:**
 ```
-📁 ~/projects/ai-tools  🌿 feature/statusline  🤖 Opus 4.1  ⌛ 2h 15m until reset (68%) [======----]  💵 $16.40 ($7.41/h)  📊 64,080 tok (850 tpm)
+📁 ~/my-app  🌿 main  🤖 Sonnet 4  🧠 Context Left: 58% [■■■■■■□□□□]
+```
+
+**Full Power Mode (Multi-line):**
+```
+📁 ~/projects/ai-tools  🌿 feature/statusline  🤖 Opus 4.1  🧠 Context Left: 51% [■■■■■□□□□□]
+⌛ 2h 15m until reset (68%) [======----]  💵 $16.40 ($7.41/h)  📊 64,080 tok (850 tpm)
 ```
 
 ## 🛠️ Advanced Usage

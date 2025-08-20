@@ -13,43 +13,82 @@ export interface StatuslineConfig {
 export async function collectConfiguration(): Promise<StatuslineConfig> {
   console.log('🚀 Welcome to cc-statusline! Let\'s create your custom Claude Code statusline.\n')
 
-  const config = await inquirer.prompt([
+  // Step 1: Core features (most users want these)
+  const coreConfig = await inquirer.prompt([
     {
       type: 'checkbox',
-      name: 'features',
-      message: 'What would you like to display in your statusline?',
+      name: 'coreFeatures',
+      message: '📋 Select core features for your statusline:',
       choices: [
         { name: '📁 Working Directory', value: 'directory', checked: true },
         { name: '🌿 Git Branch', value: 'git', checked: true },
-        { name: '🤖 Model Name & Version', value: 'model', checked: true },
-        { name: '💵 Usage & Cost', value: 'usage', checked: true },
-        { name: '⌛ Session Time Remaining', value: 'session', checked: true },
-        { name: '📊 Token Statistics', value: 'tokens', checked: false },
-        { name: '⚡ Burn Rate (tokens/min)', value: 'burnrate', checked: false }
+        { name: '🤖 Model Name', value: 'model', checked: true },
+        { name: '🧠 Context Window (remaining %)', value: 'context', checked: true }
       ],
       validate: (answer: string[]) => {
         if (answer.length < 1) {
-          return 'You must choose at least one feature.'
+          return 'You must choose at least one core feature.'
         }
         return true
       }
-    },
+    }
+  ])
+
+  // Step 2: Usage tracking
+  const usageConfig = await inquirer.prompt([
     {
       type: 'confirm',
-      name: 'colors',
-      message: 'Enable colors and emojis?',
+      name: 'enableUsage',
+      message: '💰 Enable cost and session tracking? (requires ccusage)',
       default: true
     }
   ])
 
+  let usageFeatures: string[] = []
+  if (usageConfig.enableUsage) {
+    const usageDetails = await inquirer.prompt([
+      {
+        type: 'checkbox',
+        name: 'usageFeatures',
+        message: '📊 Which usage features would you like?',
+        choices: [
+          { name: '💵 Cost & Hourly Rate', value: 'usage', checked: true },
+          { name: '⌛ Session Time Remaining', value: 'session', checked: true },
+          { name: '📊 Token Statistics', value: 'tokens', checked: false },
+          { name: '⚡ Burn Rate (tokens/min)', value: 'burnrate', checked: false }
+        ]
+      }
+    ])
+    usageFeatures = usageDetails.usageFeatures
+  }
+
+  // Step 3: Display options
+  const displayConfig = await inquirer.prompt([
+    {
+      type: 'confirm',
+      name: 'colors',
+      message: '🎨 Enable colors and emojis?',
+      default: true
+    },
+    {
+      type: 'confirm',
+      name: 'logging',
+      message: '📝 Enable debug logging? (for troubleshooting)',
+      default: false
+    }
+  ])
+
+  // Combine all selected features
+  const allFeatures = [...coreConfig.coreFeatures, ...usageFeatures]
+
   // Set intelligent defaults
   return {
-    features: config.features,
+    features: allFeatures,
     runtime: 'bash',
-    colors: config.colors,
+    colors: displayConfig.colors,
     theme: 'detailed',
-    ccusageIntegration: true, // Always enabled since npx works
-    logging: false,
+    ccusageIntegration: usageConfig.enableUsage,
+    logging: displayConfig.logging,
     customEmojis: false
   } as StatuslineConfig
 }
