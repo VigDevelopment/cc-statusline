@@ -39,6 +39,7 @@ ${generateBasicDataExtraction(hasDirectory, hasModel, hasContext)}
 ${generateColorBashCode({ enabled: config.colors, theme: config.theme })}
 ${config.colors ? generateBasicColors() : ''}
 ${hasUsage ? generateUsageUtilities() : ''}
+${(hasContext && !hasUsage) ? generateProgressBarUtility() : ''}
 ${hasGit ? generateGitUtilities() : ''}
 ${hasGit ? generateGitBashCode(gitConfig, config.colors) : ''}
 ${hasContext ? generateContextBashCode(config.colors) : ''}
@@ -245,7 +246,7 @@ if [ "$context_tokens" -gt 0 ]; then
   fi
   
   # Create context progress bar (showing remaining, not used)
-  context_bar=$(context_progress_bar "$remaining_pct" 10)
+  context_bar=$(progress_bar "$remaining_pct" 10)
   
   printf '  ${contextEmoji} Context Left: %s%d%% [%s]%s' "$context_color" "$remaining_pct" "$context_bar" "$(rst)"
 else
@@ -337,4 +338,16 @@ fi`
   }
 
   return usageContent
+}
+
+function generateProgressBarUtility(): string {
+  return `
+# ---- progress bar helper ----
+progress_bar() {
+  pct="\${1:-0}"; width="\${2:-10}"
+  [[ "$pct" =~ ^[0-9]+$ ]] || pct=0; ((pct<0))&&pct=0; ((pct>100))&&pct=100
+  filled=$(( pct * width / 100 )); empty=$(( width - filled ))
+  printf '%*s' "$filled" '' | tr ' ' '■'
+  printf '%*s' "$empty" '' | tr ' ' '□'
+}`
 }
